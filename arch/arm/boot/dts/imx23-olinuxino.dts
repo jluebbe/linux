@@ -95,6 +95,7 @@
 		usb0: usb@80080000 {
 			vbus-supply = <&reg_usb0_vbus>;
 			status = "okay";
+			dr_mode = "peripheral";
 		};
 	};
 

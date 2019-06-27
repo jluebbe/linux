@@ -1,0 +1,92 @@
+version: 2.0
+jobs:
+  build:
+    docker:
+      - image: buildpack-deps:stretch
+    steps:
+      - run:
+          name: Install dependencies
+          command: |
+            apt update -q
+            apt install -y bc bison flex libelf-dev
+      - run:
+          name: Checkout code (shallow)
+          command: |
+            mkdir -p ~/.ssh
+            
+            echo 'github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+            ' >> ~/.ssh/known_hosts
+            
+            (umask 077; touch ~/.ssh/id_rsa)
+            chmod 0600 ~/.ssh/id_rsa
+            (cat <<EOF > ~/.ssh/id_rsa
+            $CHECKOUT_KEY
+            EOF
+            )
+            
+            # use git+ssh instead of https
+            git config --global url."ssh://git@github.com".insteadOf "https://github.com" || true
+            git config --global gc.auto 0 || true
+            
+            if [ -e $HOME/project/.git ]
+            then
+              cd $HOME/project
+              git remote set-url origin "$CIRCLE_REPOSITORY_URL" || true
+            else
+              mkdir -p $HOME/project
+              cd $HOME/project
+              git clone --depth 1 "$CIRCLE_REPOSITORY_URL" .
+            fi
+            
+            if [ -n "$CIRCLE_TAG" ]
+            then
+              git fetch --depth 1 --force origin "refs/tags/${CIRCLE_TAG}"
+            else
+              git fetch --depth 1 --force origin "$CIRCLE_BRANCH:remotes/origin/$CIRCLE_BRANCH"
+            fi
+            
+            if [ -n "$CIRCLE_TAG" ]
+            then
+              git reset --hard "$CIRCLE_SHA1"
+              git checkout -q "$CIRCLE_TAG"
+            elif [ -n "$CIRCLE_BRANCH" ]
+            then
+              git reset --hard "$CIRCLE_SHA1"
+              git checkout -q -B "$CIRCLE_BRANCH"
+            fi
+            
+            git reset --hard "$CIRCLE_SHA1"
+
+      - run:
+          name: Compile
+          command: |
+            make rauc_defconfig
+            make -j 4
+
+      - run:
+          name: Collect artifacts
+          command: |
+            mkdir output
+            cp .config output/config
+            cp arch/x86/boot/bzImage output/bzImage
+            cat <<EOF > output/index.md
+            ## Linux kernel image for rauc testing
+
+            [image](bzImage)
+            [config](config)
+            [source](https://github.com/jluebbe/linux/tree/rauc-test)
+            EOF
+
+      - store_artifacts:
+          path: output
+
+      - run:
+          name: Prepare deployment
+          command: |
+            cd output
+            git init
+            git add .
+            git config user.email $CIRCLE_USERNAME@circleci-build
+            git config user.name "$CIRCLE_USERNAME via circleci"
+            git commit -m "automatic build via circleci"
+            git push --force "$CIRCLE_REPOSITORY_URL" HEAD:gh-pages

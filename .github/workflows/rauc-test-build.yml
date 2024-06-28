@@ -15,29 +15,13 @@ jobs:
         sudo apt update -q
         sudo apt install -y bc bison flex libelf-dev
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Compile
       run: |
         make rauc_defconfig
         make -j 4
     - name: Create release
       if: github.event_name == 'create'
-      id: create_release
-      uses: actions/create-release@v1.0.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: ${{ github.ref }}
-        draft: true
-        prerelease: false
-    - name: Upload asset
-      if: github.event_name == 'create'
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: arch/x86/boot/bzImage
-        asset_name: bzImage
-        asset_content_type: application/octet-stream
+        files: arch/x86/boot/bzImage
